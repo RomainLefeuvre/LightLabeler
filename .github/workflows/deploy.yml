@@ -28,13 +28,11 @@ jobs:
           node-version: 20
           cache: npm
 
+      - uses: actions/configure-pages@v4
+
       - run: npm ci
 
       - run: npm run build
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-
-      - uses: actions/configure-pages@v4
 
       - uses: actions/upload-pages-artifact@v3
         with:
