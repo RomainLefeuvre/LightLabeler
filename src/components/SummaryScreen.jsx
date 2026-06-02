@@ -8,7 +8,8 @@ export default function SummaryScreen({ items, config, onBack }) {
   items.forEach(x => (x.ground_truth || []).forEach(c => { counts[c] = (counts[c] || 0) + 1 }))
 
   function download() {
-    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' })
+    const output = { content: items, config }
+    const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url

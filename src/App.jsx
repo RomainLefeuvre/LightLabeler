@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import LoadScreen from './components/LoadScreen'
 import LabelScreen from './components/LabelScreen'
 import SummaryScreen from './components/SummaryScreen'
+
+const STORAGE_KEY = 'labeler_session'
 
 function isLabeled(item) {
   return Array.isArray(item.ground_truth) && item.ground_truth.length > 0
@@ -12,6 +14,34 @@ export default function App() {
   const [items, setItems] = useState([])
   const [config, setConfig] = useState({})
   const [current, setCurrent] = useState(0)
+  const [initialUrl, setInitialUrl] = useState('')
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const url = params.get('url')
+    if (url) {
+      setInitialUrl(url)
+    } else {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        try {
+          const { items: its, config: cfg, current: cur } = JSON.parse(saved)
+          setItems(its)
+          setConfig(cfg)
+          setCurrent(cur ?? 0)
+          setScreen('label')
+        } catch {
+          localStorage.removeItem(STORAGE_KEY)
+        }
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (items.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ items, config, current }))
+    }
+  }, [items, config, current])
 
   function handleLoad(parsed) {
     const its = parsed.content
@@ -21,6 +51,14 @@ export default function App() {
     const first = its.findIndex(x => !isLabeled(x))
     setCurrent(first === -1 ? 0 : first)
     setScreen('label')
+  }
+
+  function handleStartOver() {
+    localStorage.removeItem(STORAGE_KEY)
+    setItems([])
+    setConfig({})
+    setCurrent(0)
+    setScreen('load')
   }
 
   function handleToggle(cat) {
@@ -50,7 +88,7 @@ export default function App() {
   return (
     <div className="app">
       {screen === 'load' && (
-        <LoadScreen onLoad={handleLoad} />
+        <LoadScreen onLoad={handleLoad} initialUrl={initialUrl} />
       )}
       {screen === 'label' && (
         <LabelScreen
@@ -61,6 +99,7 @@ export default function App() {
           onNavigate={handleNavigate}
           onAdvance={handleAdvance}
           onDone={() => setScreen('summary')}
+          onStartOver={handleStartOver}
         />
       )}
       {screen === 'summary' && (

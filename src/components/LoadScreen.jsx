@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import exampleData from '../../labeler_input.example.json'
 
 const PLACEHOLDER = `{
@@ -39,23 +39,60 @@ const SCHEMA = [
   },
 ]
 
-export default function LoadScreen({ onLoad }) {
+export default function LoadScreen({ onLoad, initialUrl = '' }) {
   const [error, setError] = useState('')
+  const [loadingUrl, setLoadingUrl] = useState(false)
+  const [urlValue, setUrlValue] = useState(initialUrl)
+  const [showUrlLoader, setShowUrlLoader] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [showSchema, setShowSchema] = useState(false)
   const textRef = useRef()
   const fileRef = useRef()
+  const autoLoadedUrlRef = useRef('')
+
+  useEffect(() => {
+    if (!initialUrl || autoLoadedUrlRef.current === initialUrl) return
+    autoLoadedUrlRef.current = initialUrl
+    setUrlValue(initialUrl)
+    loadFromUrl(initialUrl)
+  }, [initialUrl])
 
   function parse(raw) {
     setError('')
-    if (!raw?.trim()) { setError('Paste or drop a JSON file first.'); return }
+    if (!raw?.trim()) { setError('Paste, drop, or load a JSON file first.'); return false }
     let parsed
-    try { parsed = JSON.parse(raw) } catch (e) { setError('Invalid JSON: ' + e.message); return }
-    if (!Array.isArray(parsed.content)) { setError('"content" must be an array.'); return }
+    try { parsed = JSON.parse(raw) } catch (e) { setError('Invalid JSON: ' + e.message); return false }
+    if (!Array.isArray(parsed.content)) { setError('"content" must be an array.'); return false }
     if (!Array.isArray(parsed.config?.categories) || parsed.config.categories.length === 0) {
-      setError('"config.categories" must be a non-empty array.'); return
+      setError('"config.categories" must be a non-empty array.'); return false
     }
     onLoad(parsed)
+    return true
+  }
+
+  async function loadFromUrl(rawUrl) {
+    const url = rawUrl.trim()
+    if (!url) {
+      setError('Enter a URL first.')
+      return
+    }
+
+    setError('')
+    setLoadingUrl(true)
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`)
+      }
+      const loaded = await response.text()
+      if (parse(loaded)) {
+        window.history.replaceState({}, '', `${import.meta.env.BASE_URL}?url=${encodeURIComponent(url)}`)
+      }
+    } catch (e) {
+      setError('Unable to load URL: ' + e.message)
+    } finally {
+      setLoadingUrl(false)
+    }
   }
 
   function handleFile(file) {
@@ -114,7 +151,32 @@ export default function LoadScreen({ onLoad }) {
         <button className="btn btn-blue" onClick={() => setShowSchema(s => !s)}>
           {showSchema ? 'Hide' : 'Show'} format spec
         </button>
+        <button className="btn btn-blue" onClick={() => setShowUrlLoader(true)}>
+          Load from URL
+        </button>
       </div>
+
+      {showUrlLoader && (
+        <div className="url-loader">
+          <div className="url-loader-label">Load from URL</div>
+          <div className="url-loader-row">
+            <input
+              className="url-input"
+              type="url"
+              placeholder="https://example.com/labeler_input.json"
+              value={urlValue}
+              onChange={e => setUrlValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') loadFromUrl(urlValue) }}
+            />
+            <button className="btn btn-blue" onClick={() => loadFromUrl(urlValue)} disabled={loadingUrl}>
+              {loadingUrl ? 'Loading…' : 'Load'}
+            </button>
+          </div>
+          <p className="url-loader-hint">
+            Use a raw JSON URL or pass <code>?url=</code> in the share link to open the data directly.
+          </p>
+        </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 
@@ -164,6 +226,7 @@ export default function LoadScreen({ onLoad }) {
           </div>
         </div>
       )}
+
     </div>
   )
 }

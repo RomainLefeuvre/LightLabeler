@@ -4,7 +4,7 @@ function isLabeled(item) {
   return Array.isArray(item.ground_truth) && item.ground_truth.length > 0
 }
 
-export default function LabelScreen({ items, config, current, onToggle, onNavigate, onAdvance, onDone }) {
+export default function LabelScreen({ items, config, current, onToggle, onNavigate, onAdvance, onDone, onStartOver }) {
   const [revealed, setRevealed] = useState(false)
   const item = items[current]
   const attrs = config.attribute_to_show || Object.keys(item).filter(k => k !== 'ground_truth')
@@ -55,7 +55,10 @@ export default function LabelScreen({ items, config, current, onToggle, onNaviga
     <div className="label-screen">
       <header className="label-header">
         <h1>Data Labeler</h1>
-        <button className="btn-primary" onClick={onDone}>Done / Download</button>
+        <div className="label-header-actions">
+          <button className="btn" onClick={onStartOver}>Load new file</button>
+          <button className="btn-primary" onClick={onDone}>Done / Download</button>
+        </div>
       </header>
 
       <div className="progress-wrap">
