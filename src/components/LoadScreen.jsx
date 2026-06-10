@@ -39,15 +39,21 @@ const SCHEMA = [
   },
 ]
 
-export default function LoadScreen({ onLoad, initialUrl = '' }) {
+export default function LoadScreen({ onLoad, onLoadReconcile, initialUrl = '' }) {
   const [error, setError] = useState('')
   const [loadingUrl, setLoadingUrl] = useState(false)
   const [urlValue, setUrlValue] = useState(initialUrl)
   const [showUrlLoader, setShowUrlLoader] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [showSchema, setShowSchema] = useState(false)
+  const [mode, setMode] = useState('label')
+  const [fileA, setFileA] = useState(null)
+  const [fileB, setFileB] = useState(null)
+  const [reconcileError, setReconcileError] = useState('')
   const textRef = useRef()
   const fileRef = useRef()
+  const fileARef = useRef()
+  const fileBRef = useRef()
   const autoLoadedUrlRef = useRef('')
 
   useEffect(() => {
@@ -102,6 +108,49 @@ export default function LoadScreen({ onLoad, initialUrl = '' }) {
     reader.readAsText(file)
   }
 
+  function handleAnnotatorFile(file, which) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = e => {
+      let parsed
+      try {
+        parsed = JSON.parse(e.target.result)
+      } catch (err) {
+        setReconcileError(`Invalid JSON in Annotator ${which} file: ${err.message}`)
+        return
+      }
+      if (!Array.isArray(parsed.content)) {
+        setReconcileError(`Annotator ${which} file: "content" must be an array.`)
+        return
+      }
+      setReconcileError('')
+      if (which === 'A') setFileA({ name: file.name, parsed })
+      else setFileB({ name: file.name, parsed })
+    }
+    reader.readAsText(file)
+  }
+
+  function startReconcile() {
+    if (!fileA || !fileB) {
+      setReconcileError('Load a file for both annotators first.')
+      return
+    }
+    if (fileA.parsed.content.length !== fileB.parsed.content.length) {
+      setReconcileError(`Item count mismatch: Annotator A has ${fileA.parsed.content.length}, Annotator B has ${fileB.parsed.content.length}.`)
+      return
+    }
+    if (!Array.isArray(fileA.parsed.config?.categories) || fileA.parsed.config.categories.length === 0) {
+      setReconcileError('Annotator A file: "config.categories" must be a non-empty array.')
+      return
+    }
+    if (JSON.stringify(fileA.parsed.config?.categories) !== JSON.stringify(fileB.parsed.config?.categories)) {
+      setReconcileError('Both files must use the same "config.categories".')
+      return
+    }
+    setReconcileError('')
+    onLoadReconcile(fileA.parsed, fileB.parsed)
+  }
+
   return (
     <div className="load-screen">
       <h1>Light Labeler</h1>
@@ -118,67 +167,123 @@ export default function LoadScreen({ onLoad, initialUrl = '' }) {
         </ul>
       </div>
 
-      <div
-        className={`drop-zone${dragging ? ' drag-over' : ''}`}
-        onClick={() => fileRef.current.click()}
-        onDragOver={e => { e.preventDefault(); setDragging(true) }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]) }}
-      >
-        Drop JSON file here or click to browse
-        <input ref={fileRef} type="file" accept=".json,application/json" hidden
-          onChange={e => handleFile(e.target.files[0])} />
-      </div>
-
-      <textarea
-        ref={textRef}
-        className="json-input"
-        placeholder={PLACEHOLDER}
-        onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) parse(textRef.current.value) }}
-      />
-
-      <div className="load-actions">
-        <button className="btn-primary" onClick={() => parse(textRef.current.value)}>
-          Start →
+      <div className="mode-toggle">
+        <button className={`btn${mode === 'label' ? ' btn-primary' : ''}`} onClick={() => setMode('label')}>
+          Label data
         </button>
-        <span className="hint">Ctrl+Enter to start</span>
-        <button className="btn btn-amber" onClick={() => {
-          textRef.current.value = JSON.stringify(exampleData, null, 2)
-          textRef.current.scrollTop = 0
-        }}>
-          Load an example
-        </button>
-        <button className="btn btn-blue" onClick={() => setShowSchema(s => !s)}>
-          {showSchema ? 'Hide' : 'Show'} format spec
-        </button>
-        <button className="btn btn-blue" onClick={() => setShowUrlLoader(true)}>
-          Load from URL
+        <button className={`btn${mode === 'reconcile' ? ' btn-primary' : ''}`} onClick={() => setMode('reconcile')}>
+          Reconcile two annotators
         </button>
       </div>
 
-      {showUrlLoader && (
-        <div className="url-loader">
-          <div className="url-loader-label">Load from URL</div>
-          <div className="url-loader-row">
-            <input
-              className="url-input"
-              type="url"
-              placeholder="https://example.com/labeler_input.json"
-              value={urlValue}
-              onChange={e => setUrlValue(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') loadFromUrl(urlValue) }}
-            />
-            <button className="btn btn-blue" onClick={() => loadFromUrl(urlValue)} disabled={loadingUrl}>
-              {loadingUrl ? 'Loading…' : 'Load'}
+      {mode === 'label' && (
+        <>
+          <div
+            className={`drop-zone${dragging ? ' drag-over' : ''}`}
+            onClick={() => fileRef.current.click()}
+            onDragOver={e => { e.preventDefault(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]) }}
+          >
+            Drop JSON file here or click to browse
+            <input ref={fileRef} type="file" accept=".json,application/json" hidden
+              onChange={e => handleFile(e.target.files[0])} />
+          </div>
+
+          <textarea
+            ref={textRef}
+            className="json-input"
+            placeholder={PLACEHOLDER}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) parse(textRef.current.value) }}
+          />
+
+          <div className="load-actions">
+            <button className="btn-primary" onClick={() => parse(textRef.current.value)}>
+              Start →
+            </button>
+            <span className="hint">Ctrl+Enter to start</span>
+            <button className="btn btn-amber" onClick={() => {
+              textRef.current.value = JSON.stringify(exampleData, null, 2)
+              textRef.current.scrollTop = 0
+            }}>
+              Load an example
+            </button>
+            <button className="btn btn-blue" onClick={() => setShowSchema(s => !s)}>
+              {showSchema ? 'Hide' : 'Show'} format spec
+            </button>
+            <button className="btn btn-blue" onClick={() => setShowUrlLoader(true)}>
+              Load from URL
             </button>
           </div>
-          <p className="url-loader-hint">
-            Use a raw JSON URL or pass <code>?url=</code> in the share link to open the data directly.
-          </p>
-        </div>
+
+          {showUrlLoader && (
+            <div className="url-loader">
+              <div className="url-loader-label">Load from URL</div>
+              <div className="url-loader-row">
+                <input
+                  className="url-input"
+                  type="url"
+                  placeholder="https://example.com/labeler_input.json"
+                  value={urlValue}
+                  onChange={e => setUrlValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') loadFromUrl(urlValue) }}
+                />
+                <button className="btn btn-blue" onClick={() => loadFromUrl(urlValue)} disabled={loadingUrl}>
+                  {loadingUrl ? 'Loading…' : 'Load'}
+                </button>
+              </div>
+              <p className="url-loader-hint">
+                Use a raw JSON URL or pass <code>?url=</code> in the share link to open the data directly.
+              </p>
+            </div>
+          )}
+
+          {error && <div className="error">{error}</div>}
+        </>
       )}
 
-      {error && <div className="error">{error}</div>}
+      {mode === 'reconcile' && (
+        <>
+          <p className="intro-sub">
+            Load two labeled files from different annotators (same items, same order, same categories).
+            For every item where their <code>ground_truth</code> differs, you'll be asked to pick the final decision.
+          </p>
+
+          <div className="reconcile-loaders">
+            <div
+              className={`drop-zone${fileA ? ' loaded' : ''}`}
+              onClick={() => fileARef.current.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); handleAnnotatorFile(e.dataTransfer.files[0], 'A') }}
+            >
+              <div className="reconcile-file-label">Annotator A</div>
+              {fileA ? `${fileA.name} (${fileA.parsed.content.length} items)` : 'Drop JSON file here or click to browse'}
+              <input ref={fileARef} type="file" accept=".json,application/json" hidden
+                onChange={e => handleAnnotatorFile(e.target.files[0], 'A')} />
+            </div>
+
+            <div
+              className={`drop-zone${fileB ? ' loaded' : ''}`}
+              onClick={() => fileBRef.current.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); handleAnnotatorFile(e.dataTransfer.files[0], 'B') }}
+            >
+              <div className="reconcile-file-label">Annotator B</div>
+              {fileB ? `${fileB.name} (${fileB.parsed.content.length} items)` : 'Drop JSON file here or click to browse'}
+              <input ref={fileBRef} type="file" accept=".json,application/json" hidden
+                onChange={e => handleAnnotatorFile(e.target.files[0], 'B')} />
+            </div>
+          </div>
+
+          <div className="load-actions">
+            <button className="btn-primary" onClick={startReconcile} disabled={!fileA || !fileB}>
+              Compare →
+            </button>
+          </div>
+
+          {reconcileError && <div className="error">{reconcileError}</div>}
+        </>
+      )}
 
       <p className="source-link">
         Open source ·{' '}

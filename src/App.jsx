@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import LoadScreen from './components/LoadScreen'
 import LabelScreen from './components/LabelScreen'
+import ReconcileScreen from './components/ReconcileScreen'
 import SummaryScreen from './components/SummaryScreen'
 
 const STORAGE_KEY = 'labeler_session'
@@ -15,6 +16,8 @@ export default function App() {
   const [config, setConfig] = useState({})
   const [current, setCurrent] = useState(0)
   const [initialUrl, setInitialUrl] = useState('')
+  const [diffIndices, setDiffIndices] = useState([])
+  const [diffPos, setDiffPos] = useState(0)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -25,11 +28,17 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         try {
-          const { items: its, config: cfg, current: cur } = JSON.parse(saved)
+          const { items: its, config: cfg, current: cur, screen: scr, diffIndices: diffs, diffPos: dpos } = JSON.parse(saved)
           setItems(its)
           setConfig(cfg)
           setCurrent(cur ?? 0)
-          setScreen('label')
+          if (scr === 'reconcile' && Array.isArray(diffs) && diffs.length > 0) {
+            setDiffIndices(diffs)
+            setDiffPos(dpos ?? 0)
+            setScreen('reconcile')
+          } else {
+            setScreen('label')
+          }
         } catch {
           localStorage.removeItem(STORAGE_KEY)
         }
@@ -39,9 +48,9 @@ export default function App() {
 
   useEffect(() => {
     if (items.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ items, config, current }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ items, config, current, screen, diffIndices, diffPos }))
     }
-  }, [items, config, current])
+  }, [items, config, current, screen, diffIndices, diffPos])
 
   function handleLoad(parsed) {
     const its = parsed.content
@@ -58,7 +67,84 @@ export default function App() {
     setItems([])
     setConfig({})
     setCurrent(0)
+    setDiffIndices([])
+    setDiffPos(0)
     setScreen('load')
+  }
+
+  function handleLoadReconcile(parsedA, parsedB) {
+    const contentA = parsedA.content
+    const contentB = parsedB.content
+    const merged = contentA.map((itemA, i) => {
+      const itemB = contentB[i] || {}
+      const gtA = Array.isArray(itemA.ground_truth) ? itemA.ground_truth : []
+      const gtB = Array.isArray(itemB.ground_truth) ? itemB.ground_truth : []
+      const same = JSON.stringify([...gtA].sort()) === JSON.stringify([...gtB].sort())
+      const item = { ...itemA }
+      if (same) {
+        item.ground_truth = gtA.length > 0 ? gtA : undefined
+      } else {
+        item.ground_truth = gtA.length > 0 ? [...gtA] : undefined
+        item._isDiff = true
+        item._annotatorA = gtA
+        item._annotatorB = gtB
+        item._resolved = false
+      }
+      return item
+    })
+    const diffs = merged.reduce((acc, it, i) => {
+      if (it._isDiff) acc.push(i)
+      return acc
+    }, [])
+    setItems(merged)
+    setConfig(parsedA.config)
+    setDiffIndices(diffs)
+    setDiffPos(0)
+    setScreen(diffs.length > 0 ? 'reconcile' : 'summary')
+  }
+
+  function handleReconcileToggle(cat) {
+    setItems(prev => {
+      const next = [...prev]
+      const idx = diffIndices[diffPos]
+      const item = { ...next[idx] }
+      const gt = Array.isArray(item.ground_truth) ? [...item.ground_truth] : []
+      const i = gt.indexOf(cat)
+      if (i === -1) gt.push(cat)
+      else gt.splice(i, 1)
+      item.ground_truth = gt.length > 0 ? gt : undefined
+      item._resolved = true
+      next[idx] = item
+      return next
+    })
+  }
+
+  function handleReconcileChoose(source) {
+    setItems(prev => {
+      const next = [...prev]
+      const idx = diffIndices[diffPos]
+      const item = { ...next[idx] }
+      const gt = source === 'A' ? item._annotatorA : item._annotatorB
+      item.ground_truth = gt.length > 0 ? [...gt] : undefined
+      item._resolved = true
+      next[idx] = item
+      return next
+    })
+  }
+
+  function handleReconcileNavigate(delta) {
+    setDiffPos(prev => Math.max(0, Math.min(diffIndices.length - 1, prev + delta)))
+  }
+
+  function handleReconcileDone() {
+    setItems(prev => prev.map(item => {
+      if (!item._isDiff) return item
+      const { _isDiff, _annotatorA, _annotatorB, _resolved, ...rest } = item
+      return rest
+    }))
+    setDiffIndices([])
+    setDiffPos(0)
+    setScreen('summary')
   }
 
   function handleToggle(cat) {
@@ -88,7 +174,20 @@ export default function App() {
   return (
     <div className="app">
       {screen === 'load' && (
-        <LoadScreen onLoad={handleLoad} initialUrl={initialUrl} />
+        <LoadScreen onLoad={handleLoad} onLoadReconcile={handleLoadReconcile} initialUrl={initialUrl} />
+      )}
+      {screen === 'reconcile' && (
+        <ReconcileScreen
+          items={items}
+          config={config}
+          diffIndices={diffIndices}
+          diffPos={diffPos}
+          onToggle={handleReconcileToggle}
+          onChoose={handleReconcileChoose}
+          onNavigate={handleReconcileNavigate}
+          onDone={handleReconcileDone}
+          onStartOver={handleStartOver}
+        />
       )}
       {screen === 'label' && (
         <LabelScreen

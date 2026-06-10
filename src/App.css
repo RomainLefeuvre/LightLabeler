@@ -135,6 +135,20 @@ h1 {
   margin-bottom: 10px;
 }
 .drop-zone:hover, .drop-zone.drag-over { border-color: #3a3a3a; color: var(--text-dim); }
+.drop-zone.loaded { border-color: var(--accent-border); color: var(--accent); }
+
+.mode-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
+
+.reconcile-loaders { display: flex; gap: 12px; }
+.reconcile-loaders .drop-zone { flex: 1; margin-bottom: 0; }
+.reconcile-file-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
 
 .url-loader {
   background: var(--surface);
